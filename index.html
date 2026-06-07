@@ -24,6 +24,10 @@
         .connect-area button { padding: 8px 15px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
         .connect-area button:hover { background: #218838; }
 
+        /* 自定义房间号按钮样式 */
+        .custom-room-btn { background: #17a2b8 !important; }
+        .custom-room-btn:hover { background: #138496 !important; }
+
         .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #fcfcfc; }
         .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; word-wrap: break-word; font-size: 14px; line-height: 1.4; }
         .msg.me { align-self: flex-end; background: #007bff; color: white; border-bottom-right-radius: 0; }
@@ -50,6 +54,12 @@
         <button class="copy-btn" onclick="copyId()">复制</button>
     </div>
 
+    <!-- 新增：自定义房间号区域 -->
+    <div class="connect-area" style="background: #f8f9fa;">
+        <input type="text" id="customRoomId" placeholder="输入自定义房间号" onkeypress="if(event.key==='Enter') setCustomRoomId()">
+        <button class="custom-room-btn" onclick="setCustomRoomId()">设置</button>
+    </div>
+
     <div class="connect-area">
         <input type="text" id="remoteId" placeholder="输入对方的房间号">
         <button onclick="connectPeer()">连接</button>
@@ -70,29 +80,66 @@
     const statusDiv = document.getElementById('status');
     const myIdDiv = document.getElementById('myId');
 
-    // 生成随机房间号
-    const roomId = 'room-' + Math.random().toString(36).substr(2, 6);
-    
-    // 初始化 Peer (使用 PeerJS 公共信令服务器)
-    peer = new Peer(roomId);
+    // 封装 Peer 初始化逻辑，支持动态重新初始化
+    function initPeer(roomId) {
+        // 如果已有 peer，先销毁旧连接
+        if (peer) {
+            peer.destroy();
+        }
+        if (conn) {
+            conn.close();
+            conn = null;
+        }
 
-    peer.on('open', (id) => {
-        myIdDiv.innerText = id;
-        statusDiv.innerText = '等待对方连接...';
-        statusDiv.className = 'status disconnected';
-    });
+        // 初始化 Peer (使用 PeerJS 公共信令服务器)
+        peer = new Peer(roomId);
 
-    // 当别人连接你时触发
-    peer.on('connection', (connection) => {
-        conn = connection;
-        setupConnection();
-    });
+        peer.on('open', (id) => {
+            myIdDiv.innerText = id;
+            statusDiv.innerText = '等待对方连接...';
+            statusDiv.className = 'status disconnected';
+        });
 
-    peer.on('error', (err) => {
-        console.error(err);
-        statusDiv.innerText = '错误: ' + err.type;
-        statusDiv.className = 'status disconnected';
-    });
+        // 当别人连接你时触发
+        peer.on('connection', (connection) => {
+            conn = connection;
+            setupConnection();
+        });
+
+        peer.on('error', (err) => {
+            console.error(err);
+            if (err.type === 'unavailable-id') {
+                statusDiv.innerText = '房间号已被占用';
+                alert('该房间号已被占用，请更换一个！');
+            } else {
+                statusDiv.innerText = '错误: ' + err.type;
+            }
+            statusDiv.className = 'status disconnected';
+        });
+    }
+
+    // 初始自动生成随机房间号
+    const defaultRoomId = 'room-' + Math.random().toString(36).substr(2, 6);
+    initPeer(defaultRoomId);
+
+    // 设置自定义房间号
+    function setCustomRoomId() {
+        const customId = document.getElementById('customRoomId').value.trim();
+        if (!customId) {
+            alert('请输入自定义房间号');
+            return;
+        }
+        
+        // 如果当前已有连接，提示用户是否断开
+        if (conn && conn.open) {
+            if (!confirm('当前已有连接，设置新房间号将断开当前连接，是否继续？')) {
+                return;
+            }
+        }
+        
+        initPeer(customId);
+        document.getElementById('customRoomId').value = ''; // 清空输入框
+    }
 
     // 主动连接别人
     function connectPeer() {
@@ -145,12 +192,7 @@
     function appendMessage(sender, text, type) {
         const msgDiv = document.createElement('div');
         msgDiv.className = `msg ${type}`;
-        
-        if (type === 'system') {
-            msgDiv.innerText = text;
-        } else {
-            msgDiv.innerText = text;
-        }
+        msgDiv.innerText = text;
         
         messagesDiv.appendChild(msgDiv);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
