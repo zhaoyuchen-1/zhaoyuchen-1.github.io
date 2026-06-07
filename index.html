@@ -1,6 +1,171 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天室</title>
+    <!-- 引入 PeerJS 库用于点对点通信 -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { width: 400px; background: white; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); display: flex; flex-direction: column; height: 600px; overflow: hidden; }
+        .header { padding: 15px; background: linear-gradient(135deg, #007bff, #0056b3); color: white; text-align: center; }
+        .header h3 { margin: 0 0 5px 0; }
+        .status { font-size: 12px; opacity: 0.9; }
+        .connected { color: #aaffaa; }
+        .disconnected { color: #ffaaaa; }
+        
+        .room-info { padding: 10px 15px; background: #f8f9fa; font-size: 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
+        .room-info span { font-weight: bold; color: #d63384; font-family: monospace; }
+        .copy-btn { padding: 4px 10px; font-size: 12px; cursor: pointer; background: #e9ecef; border: 1px solid #ccc; border-radius: 4px; }
+        
+        .connect-area { padding: 10px 15px; display: flex; gap: 8px; border-bottom: 1px solid #eee; }
+        .connect-area input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
+        .connect-area button { padding: 8px 15px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .connect-area button:hover { background: #218838; }
+
+        .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #fcfcfc; }
+        .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; word-wrap: break-word; font-size: 14px; line-height: 1.4; }
+        .msg.me { align-self: flex-end; background: #007bff; color: white; border-bottom-right-radius: 0; }
+        .msg.other { align-self: flex-start; background: #e9ecef; color: black; border-bottom-left-radius: 0; }
+        .msg.system { align-self: center; background: #fff3cd; color: #856404; font-size: 12px; border-radius: 20px; padding: 5px 12px; }
+
+        .input-area { padding: 15px; display: flex; gap: 10px; border-top: 1px solid #eee; background: white; }
+        .input-area input { flex: 1; padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; outline: none; font-size: 14px; }
+        .input-area input:focus { border-color: #007bff; }
+        .input-area button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        .input-area button:hover { background: #0056b3; }
+    </style>
+</head>
 <body>
-<h1>zychhh！</h1>
+
+<div class="container">
+    <div class="header">
+        <h3>💬 聊天室</h3>
+        <div class="status disconnected" id="status">正在初始化...</div>
+    </div>
+    
+    <div class="room-info">
+        <div>我的房间号: <span id="myId">生成中...</span></div>
+        <button class="copy-btn" onclick="copyId()">复制</button>
+    </div>
+
+    <div class="connect-area">
+        <input type="text" id="remoteId" placeholder="输入对方的房间号">
+        <button onclick="connectPeer()">连接</button>
+    </div>
+
+    <div class="messages" id="messages"></div>
+
+    <div class="input-area">
+        <input type="text" id="msgInput" placeholder="输入消息..." onkeypress="if(event.key==='Enter') sendMessage()">
+        <button onclick="sendMessage()">发送</button>
+    </div>
+</div>
+
+<script>
+    let peer;
+    let conn;
+    const messagesDiv = document.getElementById('messages');
+    const statusDiv = document.getElementById('status');
+    const myIdDiv = document.getElementById('myId');
+
+    // 生成随机房间号
+    const roomId = 'room-' + Math.random().toString(36).substr(2, 6);
+    
+    // 初始化 Peer (使用 PeerJS 公共信令服务器)
+    peer = new Peer(roomId);
+
+    peer.on('open', (id) => {
+        myIdDiv.innerText = id;
+        statusDiv.innerText = '等待对方连接...';
+        statusDiv.className = 'status disconnected';
+    });
+
+    // 当别人连接你时触发
+    peer.on('connection', (connection) => {
+        conn = connection;
+        setupConnection();
+    });
+
+    peer.on('error', (err) => {
+        console.error(err);
+        statusDiv.innerText = '错误: ' + err.type;
+        statusDiv.className = 'status disconnected';
+    });
+
+    // 主动连接别人
+    function connectPeer() {
+        const remoteId = document.getElementById('remoteId').value.trim();
+        if (!remoteId) {
+            alert('请输入对方的房间号');
+            return;
+        }
+        statusDiv.innerText = '正在连接...';
+        conn = peer.connect(remoteId);
+        setupConnection();
+    }
+
+    // 设置连接事件
+    function setupConnection() {
+        conn.on('open', () => {
+            statusDiv.innerText = '● 已连接';
+            statusDiv.className = 'status connected';
+            appendMessage('系统', '连接成功，开始聊天吧！', 'system');
+        });
+
+        conn.on('data', (data) => {
+            appendMessage('对方', data, 'other');
+        });
+
+        conn.on('close', () => {
+            statusDiv.innerText = '● 对方已断开';
+            statusDiv.className = 'status disconnected';
+            appendMessage('系统', '连接已断开', 'system');
+        });
+    }
+
+    // 发送消息
+    function sendMessage() {
+        const input = document.getElementById('msgInput');
+        const msg = input.value.trim();
+        if (!msg) return;
+        
+        if (!conn || !conn.open) {
+            alert('尚未连接到对方！请先连接或等待对方连接。');
+            return;
+        }
+
+        conn.send(msg);
+        appendMessage('我', msg, 'me');
+        input.value = '';
+    }
+
+    // 渲染消息
+    function appendMessage(sender, text, type) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `msg ${type}`;
+        
+        if (type === 'system') {
+            msgDiv.innerText = text;
+        } else {
+            msgDiv.innerText = text;
+        }
+        
+        messagesDiv.appendChild(msgDiv);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // 复制房间号
+    function copyId() {
+        const id = myIdDiv.innerText;
+        navigator.clipboard.writeText(id).then(() => {
+            alert('房间号已复制，请发给对方！');
+        }).catch(() => {
+            alert('复制失败，请手动复制: ' + id);
+        });
+    }
+</script>
+
 </body>
 </html>
